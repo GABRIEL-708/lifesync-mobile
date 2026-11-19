@@ -11,8 +11,7 @@
       "bundleIdentifier": "com.lifesync.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": false,
-          "NSExceptionDomains": {}
+          "NSAllowsArbitraryLoads": false
         },
         "NSCameraUsageDescription": "LifeSync requiere acceso a la cámara exclusivamente para escanear recetas médicas y documentos clínicos en incidentes de emergencia.",
         "NSLocationWhenInUseUsageDescription": "LifeSync utiliza tu ubicación GPS en tiempo real para geolocalizar incidentes médicos de emergencia y despachar ayuda."
@@ -25,8 +24,7 @@
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
-      ],
-      "networkSecurityConfig": "./network_security_config.xml"
+      ]
     },
     "web": {
       "bundler": "metro",
