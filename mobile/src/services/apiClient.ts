@@ -1,8 +1,23 @@
-import { getToken, saveToken, deleteToken } from '../utils/secureStorage';
+import Constants from 'expo-constants';
+import { getToken, deleteToken } from '../utils/secureStorage';
 
-const API_BASE_URL: string =
-  (process.env.EXPO_PUBLIC_API_BASE_URL as string) ??
-  'http://localhost:5000/api';
+export function getApiBaseUrl(): string {
+  if (process.env.EXPO_PUBLIC_API_BASE_URL) {
+    return process.env.EXPO_PUBLIC_API_BASE_URL;
+  }
+  // En navegador web
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    return `http://${window.location.hostname}:5000/api`;
+  }
+  // En dispositivo físico (iPhone/Android vía Expo Go)
+  const hostUri = Constants.expoConfig?.hostUri;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    return `http://${ip}:5000/api`;
+  }
+  // Fallback con la IP local de tu laptop
+  return 'http://192.168.68.101:5000/api';
+}
 
 const OFFLINE_CACHE_KEY = 'lifesync_offline_medical_cache';
 
@@ -14,10 +29,8 @@ const OFFLINE_CACHE_KEY = 'lifesync_offline_medical_cache';
  * ══════════════════════════════════════════════════════════════════════════════
  */
 class ApiClient {
-  private baseURL: string;
-
-  constructor(baseURL: string) {
-    this.baseURL = baseURL;
+  private getBaseURL(): string {
+    return getApiBaseUrl();
   }
 
   /**
@@ -27,7 +40,7 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<{ data: T; fromCache?: boolean }> {
-    const url = `${this.baseURL}${endpoint}`;
+    const url = `${this.getBaseURL()}${endpoint}`;
     const token = await getToken();
 
     // ── 1. Interceptor de Request: inyección de Bearer Token ───────────────────
@@ -65,21 +78,18 @@ class ApiClient {
       const responseData = await response.json();
 
       // Guardar en caché offline para la prueba de fuego de Modo Avión
-      if (endpoint.includes('/medical-record') && options.method !== 'GET') {
-        // Se actualizó en la nube
-      } else if (endpoint === '/medical-record/me' && responseData?.data) {
+      if (endpoint === '/medical-record/me' && responseData?.data) {
         await this.saveOfflineCache(responseData.data);
       }
 
       return { data: responseData.data ?? responseData, fromCache: false };
     } catch (networkError: any) {
       // ── 3. Manejo de Desconexión / Modo Avión (Prueba de Fuego) ─────────────
-      // Si la petición falla por falta de internet y es consulta de historial,
-      // servimos los datos desde la caché local sin crashear la app.
       if (
         endpoint === '/medical-record/me' ||
         networkError.message.includes('fetch') ||
-        networkError.message.includes('Network')
+        networkError.message.includes('Network') ||
+        networkError.message.includes('connect')
       ) {
         const cached = await this.getOfflineCache();
         if (cached) {
@@ -92,7 +102,6 @@ class ApiClient {
     }
   }
 
-  // Métodos auxiliares HTTP
   get<T>(endpoint: string) {
     return this.request<T>(endpoint, { method: 'GET' });
   }
@@ -111,7 +120,6 @@ class ApiClient {
     });
   }
 
-  // Caché local para Modo Avión
   private async saveOfflineCache(data: any): Promise<void> {
     try {
       const serialized = JSON.stringify(data);
@@ -119,7 +127,7 @@ class ApiClient {
         window.localStorage.setItem(OFFLINE_CACHE_KEY, serialized);
       }
     } catch {
-      // Ignorar si falla el storage
+      // Ignorar si no está disponible
     }
   }
 
@@ -136,4 +144,4 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient(API_BASE_URL);
+export const apiClient = new ApiClient();

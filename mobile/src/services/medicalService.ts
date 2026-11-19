@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiClient, getApiBaseUrl } from './apiClient';
 import { getToken } from '../utils/secureStorage';
 
 export interface ControlledMedication {
@@ -59,11 +59,9 @@ export async function sendIncidentLocation(latitud: number, longitud: number): P
 
 /**
  * Descarga real de archivo médico o aseguradora (Patrón Strategy en el backend)
- * Realiza fetch autenticado con Bearer JWT y dispara la descarga en el dispositivo.
  */
 export async function downloadMedicalFile(format: 'json' | 'csv'): Promise<{ filename: string; size: number }> {
-  const baseURL =
-    (process.env.EXPO_PUBLIC_API_BASE_URL as string) ?? 'http://localhost:5000/api';
+  const baseURL = getApiBaseUrl();
   const token = await getToken();
 
   const response = await fetch(`${baseURL}/medical-record/export?format=${format}`, {
@@ -83,7 +81,6 @@ export async function downloadMedicalFile(format: 'json' | 'csv'): Promise<{ fil
       ? `LifeSync_HistorialClinico_${new Date().toISOString().slice(0, 10)}.json`
       : `LifeSync_ReporteAseguradora_${new Date().toISOString().slice(0, 10)}.csv`;
 
-  // Descarga en navegador web
   if (typeof window !== 'undefined' && window.document) {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');

@@ -14,8 +14,9 @@ const PORT = process.env.PORT || 4000;
     // same connection without opening a new one.
     await db.connect();
 
-    app.listen(PORT, () => {
-      console.log(`[Server] LifeSync API running on port ${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Server] LifeSync API running on port ${PORT} (0.0.0.0)`);
+      console.log(`[Server] Local LAN URL: http://192.168.68.101:${PORT}`);
       console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (err) {

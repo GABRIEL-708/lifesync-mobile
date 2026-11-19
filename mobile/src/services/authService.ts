@@ -1,9 +1,5 @@
 import { AuthUser } from '../store/authStore';
-
-// Allow overriding via app.json extra or a build-time env variable.
-const API_BASE_URL: string =
-  (process.env.EXPO_PUBLIC_API_BASE_URL as string) ??
-  'http://localhost:5000/api/auth';
+import { getApiBaseUrl } from './apiClient';
 
 interface AuthResponse {
   token: string;
@@ -12,7 +8,7 @@ interface AuthResponse {
 
 const getErrorMessage = (data: any, fallback: string): string => {
   if (data?.errors && Array.isArray(data.errors) && data.errors.length > 0) {
-    return data.errors[0].msg || fallback;
+    return data.errors[0].msg || data.errors[0].message || fallback;
   }
   return data?.message || fallback;
 };
@@ -25,7 +21,8 @@ export async function register(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE_URL}/register`, {
+  const baseURL = getApiBaseUrl();
+  const response = await fetch(`${baseURL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nombre, email, password }),
@@ -47,7 +44,8 @@ export async function login(
   email: string,
   password: string,
 ): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE_URL}/login`, {
+  const baseURL = getApiBaseUrl();
+  const response = await fetch(`${baseURL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -62,9 +60,6 @@ export async function login(
   return data as AuthResponse;
 }
 
-/**
- * Logout (placeholder for any server-side token invalidation if needed).
- */
 export async function logout(): Promise<void> {
-  // Client-side token removal is handled by the store / secure storage.
+  // Manejado en local
 }
