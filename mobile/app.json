@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "LifeSync",
+    "slug": "lifesync",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lifesync.app",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSExceptionDomains": {}
+        },
+        "NSCameraUsageDescription": "LifeSync requiere acceso a la cámara exclusivamente para escanear recetas médicas y documentos clínicos en incidentes de emergencia.",
+        "NSLocationWhenInUseUsageDescription": "LifeSync utiliza tu ubicación GPS en tiempo real para geolocalizar incidentes médicos de emergencia y despachar ayuda."
+      }
+    },
+    "android": {
+      "package": "com.lifesync.app",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "networkSecurityConfig": "./network_security_config.xml"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "scheme": "lifesync",
+    "extra": {
+      "API_BASE_URL": "http://localhost:5000/api"
+    }
+  }
+}

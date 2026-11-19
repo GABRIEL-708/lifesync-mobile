@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 
+  LifeSync Mobile - Network Security Config (Android Hardening)
+  Bloquea tajantemente cualquier petición de red HTTP que no viaje cifrada por TLS/HTTPS.
+  Cubre la Unidad III / Sprint 4.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
