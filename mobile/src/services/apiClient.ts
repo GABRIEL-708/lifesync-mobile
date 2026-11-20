@@ -5,17 +5,27 @@ export function getApiBaseUrl(): string {
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
     return process.env.EXPO_PUBLIC_API_BASE_URL;
   }
-  // En navegador web
+
+  // 1. En navegador web corriendo en la laptop
   if (typeof window !== 'undefined' && window.location?.hostname) {
-    return `http://${window.location.hostname}:5000/api`;
+    const h = window.location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') {
+      return 'http://localhost:5000/api';
+    }
   }
-  // En dispositivo físico (iPhone/Android vía Expo Go)
+
+  // 2. En dispositivo físico (iPhone/Android)
   const hostUri = Constants.expoConfig?.hostUri;
   if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    return `http://${ip}:5000/api`;
+    const host = hostUri.split(':')[0];
+    // Si es una IP local válida (ej: 192.168.68.101), la usamos
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
+      return `http://${host}:5000/api`;
+    }
+    // Si es un túnel (ngrok / exp.direct), NUNCA usar host:5000 porque ngrok no expone el 5000
   }
-  // Fallback con la IP local de tu laptop
+
+  // 3. Fallback directo a la IP de la laptop en la red Wi-Fi
   return 'http://192.168.68.101:5000/api';
 }
 
@@ -89,7 +99,8 @@ class ApiClient {
         endpoint === '/medical-record/me' ||
         networkError.message.includes('fetch') ||
         networkError.message.includes('Network') ||
-        networkError.message.includes('connect')
+        networkError.message.includes('connect') ||
+        networkError.message.includes('timed out')
       ) {
         const cached = await this.getOfflineCache();
         if (cached) {
