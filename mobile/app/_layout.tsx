@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { getToken } from '../src/utils/secureStorage';
 import { useAuthStore } from '../src/store/authStore';
 
 /**
  * Root layout.
  *
- * On mount it reads the JWT from SecureStore. If a token exists it marks the
- * store as authenticated so the protected (app) group is reachable. The router
- * then redirects to the correct segment based on authentication state.
+ * Wraps the app in SafeAreaProvider for reliable edge-to-edge rendering
+ * across iOS Dynamic Island / notch and Android navigation bars.
+ * Manages authentication hydration and route guards.
  */
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
@@ -23,9 +24,6 @@ export default function RootLayout() {
       try {
         const storedToken = await getToken();
         if (storedToken) {
-          // We only have the token; a full user object would require a /me
-          // endpoint (Sprint 2). For now, populate a minimal placeholder so
-          // the store is marked as authenticated.
           setAuth(storedToken, {
             id: '',
             email: '',
@@ -58,9 +56,9 @@ export default function RootLayout() {
   if (!isReady) return null;
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="auto" />
       <Slot />
-    </>
+    </SafeAreaProvider>
   );
 }
