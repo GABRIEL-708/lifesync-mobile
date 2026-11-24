@@ -10,8 +10,10 @@ import {
   Alert,
   Modal,
   Platform,
+  Linking,
   useWindowDimensions,
 } from 'react-native';
+import LocationMap from '../../src/components/LocationMap';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/authStore';
 import { deleteToken } from '../../src/utils/secureStorage';
@@ -111,6 +113,7 @@ export default function HomeScreen() {
     return () => {
       unsubscribeObserver();
       unsubscribeGps();
+      gpsStateMachine.stopWatching();
     };
   }, []);
 
@@ -186,17 +189,24 @@ export default function HomeScreen() {
   };
 
   const handleGrantPermission = () => {
-    gpsStateMachine.startRequest();
-    setTimeout(() => {
-      gpsStateMachine.grant();
-    }, 300);
+    // Solicitud REAL al sistema operativo (expo-location)
+    gpsStateMachine.requestRealPermission();
   };
 
   const handleDenyPermission = () => {
+    // Simula que el usuario rechaza el permiso para demostrar la Degradación Gradual
     gpsStateMachine.startRequest();
     setTimeout(() => {
       gpsStateMachine.deny(false);
     }, 300);
+  };
+
+  const handleRefreshLocation = () => {
+    gpsStateMachine.refreshLocation();
+  };
+
+  const handleOpenSettings = () => {
+    Linking.openSettings().catch(() => {});
   };
 
   const handleLogout = async () => {
@@ -215,7 +225,7 @@ export default function HomeScreen() {
         return 'CONCEDIDO';
       case 'DENIED_SOFT':
         return 'DENEGADO';
-      case 'DENIED_PERMANENT':
+      case 'PERMANENTLY_BLOCKED':
         return 'BLOQUEADO';
       default:
         return st;
@@ -540,20 +550,90 @@ export default function HomeScreen() {
             >
               <Text style={styles.degradationTitle}>
                 {gpsStatus.state === 'GRANTED'
-                  ? '🟢 GPS Activo: Coordenadas en tiempo real'
+                  ? '🟢 GPS Activo: Coordenadas reales en tiempo real'
+                  : gpsStatus.state === 'REQUESTING'
+                  ? '⏳ Solicitando permiso...'
+                  : gpsStatus.state === 'IDLE'
+                  ? '📍 GPS inactivo'
                   : '🛡️ Degradación Gradual Activa'}
               </Text>
               <Text style={styles.degradationMsg}>{gpsStatus.statusMessage}</Text>
+              {!!gpsStatus.error && (
+                <Text style={[styles.degradationMsg, { color: '#b91c1c', marginTop: 4 }]}>
+                  ⚠️ {gpsStatus.error}
+                </Text>
+              )}
             </View>
 
-            {/* Botones de simulación de permisos adaptativos */}
+            {/* ── MAPA + COORDENADAS REALES ── */}
+            {gpsStatus.state === 'GRANTED' && (
+              gpsStatus.lastLocation ? (
+                <View>
+                  <LocationMap fix={gpsStatus.lastLocation} />
+                  <View style={styles.coordsGrid}>
+                    <View style={styles.coordCell}>
+                      <Text style={styles.coordLabel}>Latitud</Text>
+                      <Text style={styles.coordValue}>{gpsStatus.lastLocation.lat.toFixed(6)}</Text>
+                    </View>
+                    <View style={styles.coordCell}>
+                      <Text style={styles.coordLabel}>Longitud</Text>
+                      <Text style={styles.coordValue}>{gpsStatus.lastLocation.lng.toFixed(6)}</Text>
+                    </View>
+                    <View style={styles.coordCell}>
+                      <Text style={styles.coordLabel}>Precisión</Text>
+                      <Text style={styles.coordValue}>
+                        {gpsStatus.lastLocation.accuracy != null
+                          ? `± ${Math.round(gpsStatus.lastLocation.accuracy)} m`
+                          : '—'}
+                      </Text>
+                    </View>
+                    <View style={styles.coordCell}>
+                      <Text style={styles.coordLabel}>Altitud</Text>
+                      <Text style={styles.coordValue}>
+                        {gpsStatus.lastLocation.altitude != null
+                          ? `${Math.round(gpsStatus.lastLocation.altitude)} m`
+                          : '—'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.coordFooterRow}>
+                    <Text style={styles.coordTimestamp}>
+                      🕒 Última lectura: {new Date(gpsStatus.lastLocation.timestamp).toLocaleTimeString()}
+                    </Text>
+                    <TouchableOpacity onPress={handleRefreshLocation} style={styles.refreshBtn}>
+                      <Text style={styles.refreshBtnText}>↻ Actualizar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.mapPlaceholder}>
+                  <ActivityIndicator color="#4f46e5" />
+                  <Text style={styles.mapPlaceholderText}>Obteniendo señal GPS...</Text>
+                </View>
+              )
+            )}
+
+            {gpsStatus.state === 'PERMANENTLY_BLOCKED' && (
+              <TouchableOpacity style={styles.settingsBtn} onPress={handleOpenSettings}>
+                <Text style={styles.settingsBtnText}>⚙️ Abrir Ajustes para activar ubicación</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Botones de permisos */}
             <View style={[styles.buttonGrid, isSmallScreen && styles.buttonGridStacked]}>
               <TouchableOpacity
-                style={[styles.fsmActionBtn, { backgroundColor: '#10b981' }]}
+                style={[
+                  styles.fsmActionBtn,
+                  { backgroundColor: '#10b981' },
+                  gpsStatus.state === 'REQUESTING' && { opacity: 0.6 },
+                ]}
                 onPress={handleGrantPermission}
+                disabled={gpsStatus.state === 'REQUESTING'}
                 activeOpacity={0.8}
               >
-                <Text style={styles.fsmActionBtnText}>✓ Conceder GPS</Text>
+                <Text style={styles.fsmActionBtnText}>
+                  {gpsStatus.state === 'GRANTED' ? '✓ GPS Activo' : '📍 Activar GPS real'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -561,7 +641,7 @@ export default function HomeScreen() {
                 onPress={handleDenyPermission}
                 activeOpacity={0.8}
               >
-                <Text style={styles.fsmActionBtnText}>✗ Denegar (Degradar)</Text>
+                <Text style={styles.fsmActionBtnText}>✗ Simular Denegación</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1108,6 +1188,65 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   fsmActionBtnText: { color: '#fff', fontSize: 11, fontWeight: '800', textAlign: 'center' },
+
+  // Mapa y coordenadas reales
+  coordsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  coordCell: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  coordLabel: { fontSize: 9, color: '#64748b', fontWeight: '800', textTransform: 'uppercase' },
+  coordValue: {
+    fontSize: 13,
+    color: '#0f172a',
+    fontWeight: '800',
+    marginTop: 1,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  coordFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 6,
+  },
+  coordTimestamp: { fontSize: 10, color: '#64748b', flex: 1 },
+  refreshBtn: {
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  refreshBtnText: { fontSize: 11, color: '#4338ca', fontWeight: '800' },
+  mapPlaceholder: {
+    height: 120,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  mapPlaceholderText: { fontSize: 11, color: '#64748b', marginTop: 6, fontWeight: '700' },
+  settingsBtn: {
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  settingsBtnText: { fontSize: 11, color: '#9a3412', fontWeight: '800' },
 
   // Modal
   modalOverlay: {
