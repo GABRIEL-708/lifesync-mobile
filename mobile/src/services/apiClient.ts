@@ -1,32 +1,34 @@
 import Constants from 'expo-constants';
 import { getToken, deleteToken } from '../utils/secureStorage';
 
+/**
+ * URL pública del backend desplegado en Render (HTTPS / TLS).
+ * Es la URL por defecto en todos los entornos (iPhone, Android, Web).
+ */
+export const RENDER_API_BASE_URL = 'https://lifesync-mobile.onrender.com/api';
+
 export function getApiBaseUrl(): string {
+  // 1. Override explícito por variable de entorno (ej. EXPO_PUBLIC_API_BASE_URL en mobile/.env)
   if (process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
+    return process.env.EXPO_PUBLIC_API_BASE_URL.replace(/\/$/, '');
   }
 
-  // 1. En navegador web corriendo en la laptop
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const h = window.location.hostname;
-    if (h === 'localhost' || h === '127.0.0.1') {
-      return 'http://localhost:5000/api';
+  // 2. Desarrollo local opcional: EXPO_PUBLIC_USE_LOCAL_API=true usa el backend de la laptop
+  if (process.env.EXPO_PUBLIC_USE_LOCAL_API === 'true') {
+    if (typeof window !== 'undefined' && window.location?.hostname) {
+      const h = window.location.hostname;
+      if (h === 'localhost' || h === '127.0.0.1') {
+        return 'http://localhost:5000/api';
+      }
     }
-  }
-
-  // 2. En dispositivo físico (iPhone/Android)
-  const hostUri = Constants.expoConfig?.hostUri;
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    // Si es una IP local válida (ej: 192.168.68.101), la usamos
-    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
+    const host = Constants.expoConfig?.hostUri?.split(':')[0];
+    if (host && /^(\d{1,3}\.){3}\d{1,3}$/.test(host)) {
       return `http://${host}:5000/api`;
     }
-    // Si es un túnel (ngrok / exp.direct), NUNCA usar host:5000 porque ngrok no expone el 5000
   }
 
-  // 3. Fallback directo a la IP de la laptop en la red Wi-Fi
-  return 'http://192.168.68.101:5000/api';
+  // 3. Producción por defecto: backend público en Render
+  return RENDER_API_BASE_URL;
 }
 
 const OFFLINE_CACHE_KEY = 'lifesync_offline_medical_cache';
