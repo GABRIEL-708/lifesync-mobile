@@ -29,6 +29,7 @@ import {
   gpsStateMachine,
   SensorStatus,
 } from '../../src/machines/PermissionStateMachine';
+import { initLocalNotifications } from '../../src/services/notificationService';
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
@@ -93,6 +94,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchRecord();
+    initLocalNotifications();
 
     const unsubscribeObserver = medicalAlertDispatcher.subscribe((newAlert) => {
       setAlerts((prev) => [newAlert, ...prev]);
@@ -222,39 +224,6 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      {/* ── NOTIFICACIÓN FLOTANTE OBSERVER ── */}
-      {activeBannerAlert && (
-        <View style={styles.floatingBannerContainer}>
-          <View style={styles.floatingAlertBanner}>
-            <Text style={styles.floatingIcon}>
-              {activeBannerAlert.tipo === 'CRITICAL_MEDICATION' ? '💊' : '🚨'}
-            </Text>
-            <View style={styles.floatingTextContainer}>
-              <Text style={styles.floatingAlertTitle} numberOfLines={1}>
-                {activeBannerAlert.titulo}
-              </Text>
-              <Text style={styles.floatingAlertMsg} numberOfLines={2}>
-                {activeBannerAlert.mensaje}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.floatingCloseBtn}
-              onPress={() => setActiveBannerAlert(null)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={styles.floatingCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* ── NOTIFICACIÓN DE DESCARGA STRATEGY ── */}
-      {downloadSuccessMessage && (
-        <View style={styles.downloadNotificationBanner}>
-          <Text style={styles.downloadNotificationText}>{downloadSuccessMessage}</Text>
-        </View>
-      )}
-
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -599,6 +568,44 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
+      {/* ── NOTIFICACIÓN FLOTANTE OBSERVER (renderizada al final para quedar encima) ── */}
+      {activeBannerAlert && (
+        <View style={styles.floatingBannerContainer} pointerEvents="box-none">
+          <View
+            style={[
+              styles.floatingAlertBanner,
+              activeBannerAlert.tipo === 'CRITICAL_MEDICATION' && styles.floatingAlertBannerMed,
+            ]}
+          >
+            <Text style={styles.floatingIcon}>
+              {activeBannerAlert.tipo === 'CRITICAL_MEDICATION' ? '💊' : '🚨'}
+            </Text>
+            <View style={styles.floatingTextContainer}>
+              <Text style={styles.floatingAlertTitle} numberOfLines={2}>
+                {activeBannerAlert.titulo}
+              </Text>
+              <Text style={styles.floatingAlertMsg} numberOfLines={3}>
+                {activeBannerAlert.mensaje}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.floatingCloseBtn}
+              onPress={() => setActiveBannerAlert(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.floatingCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ── NOTIFICACIÓN DE DESCARGA STRATEGY ── */}
+      {downloadSuccessMessage && (
+        <View style={styles.downloadNotificationBanner} pointerEvents="none">
+          <Text style={styles.downloadNotificationText}>{downloadSuccessMessage}</Text>
+        </View>
+      )}
+
       {/* ── MODAL RESPONSIVO DE EDICIÓN ── */}
       <Modal visible={editModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -735,12 +742,14 @@ const styles = StyleSheet.create({
   // Banner Flotante Alerta
   floatingBannerContainer: {
     position: 'absolute',
-    top: Platform.OS === 'web' ? 12 : 54,
+    top: 8,
     left: 12,
     right: 12,
     zIndex: 9999,
+    elevation: 20,
     alignItems: 'center',
   },
+  floatingAlertBannerMed: { backgroundColor: '#3730a3', borderColor: '#818cf8' },
   floatingAlertBanner: {
     width: '100%',
     maxWidth: 480,
@@ -767,10 +776,11 @@ const styles = StyleSheet.create({
   // Banner Descarga
   downloadNotificationBanner: {
     position: 'absolute',
-    top: Platform.OS === 'web' ? 12 : 54,
+    top: 8,
     left: 12,
     right: 12,
     zIndex: 9998,
+    elevation: 19,
     backgroundColor: '#065f46',
     borderRadius: 10,
     padding: 10,

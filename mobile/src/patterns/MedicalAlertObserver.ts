@@ -7,6 +7,8 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+import { showLocalNotification } from '../services/notificationService';
+
 export interface MedicalAlert {
   id: string;
   tipo: 'CRITICAL_MEDICATION' | 'ANOMALY_DETECTED' | 'EMERGENCY_DISPATCH';
@@ -25,14 +27,8 @@ class MedicalAlertSubject {
   private observers: Set<AlertObserverCallback> = new Set();
   private alertHistory: MedicalAlert[] = [];
 
-  constructor() {
-    // Solicitar permiso de notificación del sistema si corre en navegador
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-    }
-  }
+  // El permiso de notificaciones se solicita desde la UI (initLocalNotifications)
+  constructor() {}
 
   /**
    * Suscribe un observador a las alertas médicas.
@@ -65,17 +61,8 @@ class MedicalAlertSubject {
       }
     });
 
-    // 2. Disparar notificación nativa del sistema (si está soportado)
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification(alert.titulo, {
-          body: alert.mensaje,
-          icon: 'https://cdn-icons-png.flaticon.com/512/2966/2966327.png',
-        });
-      } catch {
-        // Fallback si el navegador restringe
-      }
-    }
+    // 2. Disparar notificación nativa del sistema (iOS / Android / Web)
+    showLocalNotification(alert.titulo, alert.mensaje, alert.nivelPrioridad === 'CRITICA');
   }
 
   /**
