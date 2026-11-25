@@ -11,9 +11,21 @@ import {
   Modal,
   Platform,
   Linking,
+  KeyboardAvoidingView,
   useWindowDimensions,
 } from 'react-native';
 import LocationMap from '../../src/components/LocationMap';
+
+const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Desconocido'] as const;
+
+function isRecordIncomplete(rec: MedicalRecordData | null | undefined): boolean {
+  if (!rec) return true;
+  const firstContact = rec.contactosEmergencia?.[0];
+  const hasPlaceholderContact =
+    !firstContact ||
+    (firstContact.nombre === 'Contacto inicial' && firstContact.telefono === '000-000-0000');
+  return rec.tipoSangre === 'Desconocido' && hasPlaceholderContact;
+}
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/authStore';
 import { deleteToken } from '../../src/utils/secureStorage';
@@ -53,7 +65,9 @@ export default function HomeScreen() {
   // Estados de la Máquina de Estados (GPS / Sensores)
   const [gpsStatus, setGpsStatus] = useState<SensorStatus>(gpsStateMachine.getStatus());
 
-  // Formulario de edición
+  // Formulario de edición y onboarding inicial
+  const [isOnboardingRequired, setIsOnboardingRequired] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formBloodType, setFormBloodType] = useState('O+');
   const [formAllergies, setFormAllergies] = useState('');
   const [formConditions, setFormConditions] = useState('');
@@ -63,6 +77,7 @@ export default function HomeScreen() {
   const [formContactName, setFormContactName] = useState('');
   const [formContactPhone, setFormContactPhone] = useState('');
   const [formContactRel, setFormContactRel] = useState('');
+  const [formNotes, setFormNotes] = useState('');
 
   // ── Cargar historial clínico ──────────────────────────────────────────────
   const fetchRecord = async () => {
@@ -73,18 +88,40 @@ export default function HomeScreen() {
       setIsOffline(res.isOffline);
 
       if (res.record) {
-        setFormBloodType(res.record.tipoSangre || 'O+');
+        const incomplete = isRecordIncomplete(res.record);
+        setFormBloodType(res.record.tipoSangre || 'Desconocido');
         setFormAllergies((res.record.alergias || []).join(', '));
         setFormConditions((res.record.condicionesCronicas || []).join(', '));
+        setFormNotes(res.record.notasMedicas || '');
+
         if (res.record.medicamentosControlados?.[0]) {
           setFormMedName(res.record.medicamentosControlados[0].nombre);
           setFormMedDose(res.record.medicamentosControlados[0].dosis);
           setFormMedFreq(res.record.medicamentosControlados[0].frecuencia);
+        } else {
+          setFormMedName('');
+          setFormMedDose('');
+          setFormMedFreq('');
         }
-        if (res.record.contactosEmergencia?.[0]) {
-          setFormContactName(res.record.contactosEmergencia[0].nombre);
-          setFormContactRel(res.record.contactosEmergencia[0].relacion);
-          setFormContactPhone(res.record.contactosEmergencia[0].telefono);
+
+        const c = res.record.contactosEmergencia?.[0];
+        const isDummyContact = c && c.nombre === 'Contacto inicial' && c.telefono === '000-000-0000';
+        if (c && !isDummyContact) {
+          setFormContactName(c.nombre);
+          setFormContactRel(c.relacion);
+          setFormContactPhone(c.telefono);
+        } else {
+          setFormContactName('');
+          setFormContactRel('');
+          setFormContactPhone('');
+        }
+
+        // Si es cuenta nueva (sin historial llenado), obligar a completarlo primero
+        if (incomplete) {
+          setIsOnboardingRequired(true);
+          setEditModalVisible(true);
+        } else {
+          setIsOnboardingRequired(false);
         }
       }
     } catch (err: any) {
@@ -119,35 +156,70 @@ export default function HomeScreen() {
 
   // ── Guardar edición de historial ──────────────────────────────────────────
   const handleSaveRecord = async () => {
+    setFormError(null);
+
+    const contactName = formContactName.trim();
+    const contactRel = formContactRel.trim();
+    const contactPhone = formContactPhone.trim();
+    const medName = formMedName.trim();
+    const medDose = formMedDose.trim();
+    const medFreq = formMedFreq.trim();
+
+    if (contactName.length < 2) {
+      setFormError('Ingresa el nombre completo de tu contacto de emergencia (mínimo 2 letras).');
+      return;
+    }
+    if (contactRel.length < 2) {
+      setFormError('Indica el parentesco o relación del contacto (ej. Madre, Hermano, Pareja).');
+      return;
+    }
+    if (!/^[\d\s+\-()]{7,20}$/.test(contactPhone)) {
+      setFormError('Ingresa un teléfono de emergencia válido (7 a 20 dígitos, ej. 999-123-4567).');
+      return;
+    }
+    if (medName.length > 0 && (medName.length < 2 || !medDose || !medFreq)) {
+      setFormError('Si registras un medicamento, completa también su dosis y frecuencia.');
+      return;
+    }
+
     setSaving(true);
     try {
       const updated: MedicalRecordData = {
         tipoSangre: formBloodType as any,
         alergias: formAllergies.split(',').map((s) => s.trim()).filter(Boolean),
         condicionesCronicas: formConditions.split(',').map((s) => s.trim()).filter(Boolean),
-        medicamentosControlados: [
-          {
-            nombre: formMedName.trim() || 'Medicamento',
-            dosis: formMedDose.trim() || '1 dosis',
-            frecuencia: formMedFreq.trim() || 'Diario',
-          },
-        ],
+        medicamentosControlados: medName
+          ? [
+              {
+                nombre: medName,
+                dosis: medDose,
+                frecuencia: medFreq,
+              },
+            ]
+          : [],
         contactosEmergencia: [
           {
-            nombre: formContactName.trim() || 'Contacto de Emergencia',
-            relacion: formContactRel.trim() || 'Familiar',
-            telefono: formContactPhone.trim() || '000-000-0000',
+            nombre: contactName,
+            relacion: contactRel,
+            telefono: contactPhone,
           },
         ],
-        notasMedicas: 'Historial validado con esquemas Zod en LifeSync.',
+        notasMedicas: formNotes.trim() || 'Historial validado con esquemas Zod en LifeSync.',
       };
 
       const res = await updateMedicalRecord(updated);
       setRecord(res);
+      setIsOnboardingRequired(false);
       setEditModalVisible(false);
-      Alert.alert('Éxito', 'Historial médico guardado en la nube.');
+      setFormError(null);
+      Alert.alert(
+        '¡Listo!',
+        isOnboardingRequired
+          ? 'Tu historial clínico quedó registrado. Ya puedes usar LifeSync.'
+          : 'Historial médico actualizado correctamente.'
+      );
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Error al guardar.');
+      setFormError(err.message || 'Error al guardar el historial.');
     } finally {
       setSaving(false);
     }
@@ -345,17 +417,21 @@ export default function HomeScreen() {
                 {/* Medicamentos Controlados */}
                 <View style={styles.infoSection}>
                   <Text style={styles.infoSectionTitle}>💊 Medicamentos Controlados</Text>
-                  {(record?.medicamentosControlados || []).map((m, i) => (
-                    <View key={i} style={styles.medicationRow}>
-                      <View style={styles.medicationInfoCol}>
-                        <Text style={styles.medicationName} numberOfLines={1}>{m.nombre}</Text>
-                        <Text style={styles.medicationFreq} numberOfLines={1}>🕒 {m.frecuencia}</Text>
+                  {(record?.medicamentosControlados || []).length > 0 ? (
+                    (record?.medicamentosControlados || []).map((m, i) => (
+                      <View key={i} style={styles.medicationRow}>
+                        <View style={styles.medicationInfoCol}>
+                          <Text style={styles.medicationName} numberOfLines={1}>{m.nombre}</Text>
+                          <Text style={styles.medicationFreq} numberOfLines={1}>🕒 {m.frecuencia}</Text>
+                        </View>
+                        <View style={styles.doseBadge}>
+                          <Text style={styles.doseBadgeText}>{m.dosis}</Text>
+                        </View>
                       </View>
-                      <View style={styles.doseBadge}>
-                        <Text style={styles.doseBadgeText}>{m.dosis}</Text>
-                      </View>
-                    </View>
-                  ))}
+                    ))
+                  ) : (
+                    <Text style={styles.placeholderText}>Sin medicamentos controlados registrados</Text>
+                  )}
                 </View>
 
                 {/* Contactos de Emergencia */}
@@ -686,99 +762,222 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* ── MODAL RESPONSIVO DE EDICIÓN ── */}
-      <Modal visible={editModalVisible} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
+      {/* ── MODAL RESPONSIVO DE EDICIÓN Y REGISTRO INICIAL ── */}
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!isOnboardingRequired) setEditModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={styles.modalCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Editar Expediente Médico</Text>
-              <TouchableOpacity
-                style={styles.modalCloseIconBtn}
-                onPress={() => setEditModalVisible(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={{ fontSize: 16, color: '#64748b', fontWeight: '800' }}>✕</Text>
-              </TouchableOpacity>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.modalTitle}>
+                  {isOnboardingRequired
+                    ? '🩺 Completa tu Historial Clínico'
+                    : '✏️ Editar Expediente Médico'}
+                </Text>
+                <Text style={styles.modalSubtitle}>
+                  {isOnboardingRequired
+                    ? 'Paso obligatorio al crear cuenta para activar tu perfil de emergencia'
+                    : 'Actualiza tus datos vitales y de contacto'}
+                </Text>
+              </View>
+              {!isOnboardingRequired && (
+                <TouchableOpacity
+                  style={styles.modalCloseIconBtn}
+                  onPress={() => {
+                    setFormError(null);
+                    setEditModalVisible(false);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={{ fontSize: 16, color: '#64748b', fontWeight: '800' }}>✕</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
+            {isOnboardingRequired && (
+              <View style={styles.onboardingBanner}>
+                <Text style={styles.onboardingBannerText}>
+                  👋 ¡Bienvenido a LifeSync! Llena tus datos médicos antes de continuar para que estén disponibles en caso de emergencia.
+                </Text>
+              </View>
+            )}
+
             <ScrollView
-              style={{ maxHeight: 380 }}
-              showsVerticalScrollIndicator={false}
+              style={{ maxHeight: 430 }}
+              showsVerticalScrollIndicator={true}
               keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.formLabel}>Tipo de Sangre:</Text>
-              <TextInput
-                style={styles.formInput}
-                value={formBloodType}
-                onChangeText={setFormBloodType}
-                placeholder="A+, A-, B+, B-, AB+, O+, O-"
-              />
+              {/* SECCIÓN 1: TIPO DE SANGRE */}
+              <View style={styles.formSection}>
+                <Text style={styles.formSectionTitle}>🩸 1. Tipo de Sangre</Text>
+                <Text style={styles.formHint}>Toca una opción para seleccionarla:</Text>
+                <View style={styles.bloodTypeGrid}>
+                  {BLOOD_TYPES.map((bt) => {
+                    const selected = formBloodType === bt;
+                    return (
+                      <TouchableOpacity
+                        key={bt}
+                        style={[styles.bloodChip, selected && styles.bloodChipSelected]}
+                        onPress={() => setFormBloodType(bt)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.bloodChipText, selected && styles.bloodChipTextSelected]}>
+                          {bt}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
 
-              <Text style={styles.formLabel}>Alergias (separadas por coma):</Text>
-              <TextInput
-                style={styles.formInput}
-                value={formAllergies}
-                onChangeText={setFormAllergies}
-                placeholder="Penicilina, Mariscos, Yodo"
-              />
+              {/* SECCIÓN 2: ALERGIAS Y CONDICIONES */}
+              <View style={styles.formSection}>
+                <Text style={styles.formSectionTitle}>⚠️ 2. Alergias y Condiciones</Text>
 
-              <Text style={styles.formLabel}>Condiciones Crónicas (separadas por coma):</Text>
-              <TextInput
-                style={styles.formInput}
-                value={formConditions}
-                onChangeText={setFormConditions}
-                placeholder="Asma, Hipertensión, Diabetes"
-              />
+                <Text style={styles.formLabel}>Alergias conocidas (opcional)</Text>
+                <Text style={styles.formHint}>Escribe cada alergia separada por una coma</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formAllergies}
+                  onChangeText={setFormAllergies}
+                  placeholder="Ej. Penicilina, Mariscos, Polen"
+                  placeholderTextColor="#94a3b8"
+                />
 
-              <Text style={styles.formLabel}>Medicamento Controlado:</Text>
-              <TextInput
-                style={styles.formInput}
-                value={formMedName}
-                onChangeText={setFormMedName}
-                placeholder="Nombre (ej. Salbutamol)"
-              />
-              <TextInput
-                style={styles.formInput}
-                value={formMedDose}
-                onChangeText={setFormMedDose}
-                placeholder="Dosis (ej. 100 mcg)"
-              />
-              <TextInput
-                style={styles.formInput}
-                value={formMedFreq}
-                onChangeText={setFormMedFreq}
-                placeholder="Frecuencia (ej. Cada 8 horas)"
-              />
+                <Text style={styles.formLabel}>Enfermedades o condiciones crónicas (opcional)</Text>
+                <Text style={styles.formHint}>Déjalo vacío si no tienes ninguna</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formConditions}
+                  onChangeText={setFormConditions}
+                  placeholder="Ej. Asma, Hipertensión, Diabetes"
+                  placeholderTextColor="#94a3b8"
+                />
+              </View>
 
-              <Text style={styles.formLabel}>Contacto de Emergencia:</Text>
-              <TextInput
-                style={styles.formInput}
-                value={formContactName}
-                onChangeText={setFormContactName}
-                placeholder="Nombre del contacto"
-              />
-              <TextInput
-                style={styles.formInput}
-                value={formContactRel}
-                onChangeText={setFormContactRel}
-                placeholder="Relación o parentesco"
-              />
-              <TextInput
-                style={styles.formInput}
-                value={formContactPhone}
-                onChangeText={setFormContactPhone}
-                placeholder="Teléfono"
-                keyboardType="phone-pad"
-              />
+              {/* SECCIÓN 3: MEDICAMENTO CONTROLADO */}
+              <View style={styles.formSection}>
+                <Text style={styles.formSectionTitle}>💊 3. Medicamento Controlado (opcional)</Text>
+                <Text style={styles.formHint}>
+                  Si tomas algún medicamento importante, indica sus datos:
+                </Text>
+
+                <Text style={styles.formLabel}>Nombre del medicamento</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formMedName}
+                  onChangeText={setFormMedName}
+                  placeholder="Ej. Salbutamol inhalador, Metformina"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <View style={styles.formRowTwoCols}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.formLabel}>Dosis</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formMedDose}
+                      onChangeText={setFormMedDose}
+                      placeholder="Ej. 100 mcg / 500 mg"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.formLabel}>Frecuencia</Text>
+                    <TextInput
+                      style={styles.formInput}
+                      value={formMedFreq}
+                      onChangeText={setFormMedFreq}
+                      placeholder="Ej. Cada 8 horas"
+                      placeholderTextColor="#94a3b8"
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* SECCIÓN 4: CONTACTO DE EMERGENCIA */}
+              <View style={styles.formSection}>
+                <Text style={styles.formSectionTitle}>📞 4. Contacto de Emergencia *</Text>
+                <Text style={styles.formHint}>
+                  Obligatorio: persona a llamar en caso de accidente o urgencia
+                </Text>
+
+                <Text style={styles.formLabel}>Nombre completo del contacto *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formContactName}
+                  onChangeText={setFormContactName}
+                  placeholder="Ej. María González"
+                  placeholderTextColor="#94a3b8"
+                  autoCapitalize="words"
+                />
+
+                <Text style={styles.formLabel}>Parentesco o relación *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formContactRel}
+                  onChangeText={setFormContactRel}
+                  placeholder="Ej. Madre, Padre, Pareja, Hermano"
+                  placeholderTextColor="#94a3b8"
+                />
+
+                <Text style={styles.formLabel}>Número de teléfono *</Text>
+                <TextInput
+                  style={styles.formInput}
+                  value={formContactPhone}
+                  onChangeText={setFormContactPhone}
+                  placeholder="Ej. 999-123-4567"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="phone-pad"
+                />
+              </View>
+
+              {/* SECCIÓN 5: NOTAS MÉDICAS */}
+              <View style={[styles.formSection, { marginBottom: 4 }]}>
+                <Text style={styles.formSectionTitle}>📝 5. Notas Médicas (opcional)</Text>
+                <Text style={styles.formLabel}>Indicaciones extra para paramédicos</Text>
+                <TextInput
+                  style={[styles.formInput, { minHeight: 56, textAlignVertical: 'top' }]}
+                  value={formNotes}
+                  onChangeText={setFormNotes}
+                  placeholder="Ej. Uso lentes de contacto, alergia al látex..."
+                  placeholderTextColor="#94a3b8"
+                  multiline
+                />
+              </View>
             </ScrollView>
 
+            {!!formError && (
+              <View style={styles.formErrorBox}>
+                <Text style={styles.formErrorText}>⚠️ {formError}</Text>
+              </View>
+            )}
+
             <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.btnCancel}
-                onPress={() => setEditModalVisible(false)}
-              >
-                <Text style={styles.btnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
+              {isOnboardingRequired ? (
+                <TouchableOpacity style={styles.btnCancel} onPress={handleLogout}>
+                  <Text style={[styles.btnCancelText, { color: '#dc2626' }]}>Cerrar sesión</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.btnCancel}
+                  onPress={() => {
+                    setFormError(null);
+                    setEditModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.btnCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={styles.btnSave}
@@ -788,12 +987,14 @@ export default function HomeScreen() {
                 {saving ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.btnSaveText}>Guardar</Text>
+                  <Text style={styles.btnSaveText}>
+                    {isOnboardingRequired ? 'Guardar y continuar →' : 'Guardar cambios'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1277,10 +1478,30 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
   },
   modalTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  modalSubtitle: { fontSize: 11, color: '#64748b', marginTop: 2 },
   modalCloseIconBtn: { padding: 4 },
-  formLabel: { fontSize: 11, fontWeight: '800', color: '#475569', marginTop: 8, marginBottom: 3 },
-  formInput: {
+  onboardingBanner: {
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  onboardingBannerText: { fontSize: 11, color: '#3730a3', fontWeight: '700', lineHeight: 16 },
+  formSection: {
     backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 10,
+  },
+  formSectionTitle: { fontSize: 12, fontWeight: '800', color: '#0f172a', marginBottom: 4 },
+  formHint: { fontSize: 10, color: '#64748b', marginBottom: 4 },
+  formLabel: { fontSize: 11, fontWeight: '700', color: '#334155', marginTop: 6, marginBottom: 3 },
+  formInput: {
+    backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#cbd5e1',
     borderRadius: 8,
@@ -1289,6 +1510,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#0f172a',
   },
+  formRowTwoCols: { flexDirection: 'row', gap: 8 },
+  bloodTypeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  bloodChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  bloodChipSelected: {
+    backgroundColor: '#e11d48',
+    borderColor: '#be123c',
+  },
+  bloodChipText: { fontSize: 11, fontWeight: '800', color: '#334155' },
+  bloodChipTextSelected: { color: '#ffffff' },
+  formErrorBox: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+  },
+  formErrorText: { fontSize: 11, color: '#b91c1c', fontWeight: '700' },
   modalBtnRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
