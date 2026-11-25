@@ -49,7 +49,7 @@ export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const isSmallScreen = width < 360;
 
-  const { user, clearAuth } = useAuthStore();
+  const { user, clearAuth, needsOnboarding, completeOnboarding } = useAuthStore();
   const [record, setRecord] = useState<MedicalRecordData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -66,7 +66,7 @@ export default function HomeScreen() {
   const [gpsStatus, setGpsStatus] = useState<SensorStatus>(gpsStateMachine.getStatus());
 
   // Formulario de edición y onboarding inicial
-  const [isOnboardingRequired, setIsOnboardingRequired] = useState(false);
+  const [isOnboardingRequired, setIsOnboardingRequired] = useState(needsOnboarding);
   const [formError, setFormError] = useState<string | null>(null);
   const [formBloodType, setFormBloodType] = useState('O+');
   const [formAllergies, setFormAllergies] = useState('');
@@ -116,10 +116,9 @@ export default function HomeScreen() {
           setFormContactPhone('');
         }
 
-        // Si es cuenta nueva (sin historial llenado), obligar a completarlo primero
-        if (incomplete) {
+        // Si es cuenta nueva (recién registrada o sin historial llenado), obligar a completarlo primero
+        if (needsOnboarding || incomplete) {
           setIsOnboardingRequired(true);
-          setEditModalVisible(true);
         } else {
           setIsOnboardingRequired(false);
         }
@@ -208,13 +207,15 @@ export default function HomeScreen() {
       };
 
       const res = await updateMedicalRecord(updated);
+      const wasOnboarding = isOnboardingRequired || needsOnboarding;
       setRecord(res);
       setIsOnboardingRequired(false);
+      completeOnboarding();
       setEditModalVisible(false);
       setFormError(null);
       Alert.alert(
         '¡Listo!',
-        isOnboardingRequired
+        wasOnboarding
           ? 'Tu historial clínico quedó registrado. Ya puedes usar LifeSync.'
           : 'Historial médico actualizado correctamente.'
       );
@@ -303,6 +304,224 @@ export default function HomeScreen() {
         return st;
     }
   };
+
+  const mustCompleteRecord = needsOnboarding || isOnboardingRequired;
+
+  // Formulario reutilizable para pantalla inicial obligatoria y modal de edición
+  const renderMedicalFormFields = () => (
+    <>
+      {/* SECCIÓN 1: TIPO DE SANGRE */}
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>🩸 1. Tipo de Sangre</Text>
+        <Text style={styles.formHint}>Toca una opción para seleccionarla:</Text>
+        <View style={styles.bloodTypeGrid}>
+          {BLOOD_TYPES.map((bt) => {
+            const selected = formBloodType === bt;
+            return (
+              <TouchableOpacity
+                key={bt}
+                style={[styles.bloodChip, selected && styles.bloodChipSelected]}
+                onPress={() => setFormBloodType(bt)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.bloodChipText, selected && styles.bloodChipTextSelected]}>
+                  {bt}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* SECCIÓN 2: ALERGIAS Y CONDICIONES */}
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>⚠️ 2. Alergias y Condiciones</Text>
+
+        <Text style={styles.formLabel}>Alergias conocidas (opcional)</Text>
+        <Text style={styles.formHint}>Escribe cada alergia separada por una coma</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formAllergies}
+          onChangeText={setFormAllergies}
+          placeholder="Ej. Penicilina, Mariscos, Polen"
+          placeholderTextColor="#94a3b8"
+        />
+
+        <Text style={styles.formLabel}>Enfermedades o condiciones crónicas (opcional)</Text>
+        <Text style={styles.formHint}>Déjalo vacío si no tienes ninguna</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formConditions}
+          onChangeText={setFormConditions}
+          placeholder="Ej. Asma, Hipertensión, Diabetes"
+          placeholderTextColor="#94a3b8"
+        />
+      </View>
+
+      {/* SECCIÓN 3: MEDICAMENTO CONTROLADO */}
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>💊 3. Medicamento Controlado (opcional)</Text>
+        <Text style={styles.formHint}>
+          Si tomas algún medicamento importante, indica sus datos:
+        </Text>
+
+        <Text style={styles.formLabel}>Nombre del medicamento</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formMedName}
+          onChangeText={setFormMedName}
+          placeholder="Ej. Salbutamol inhalador, Metformina"
+          placeholderTextColor="#94a3b8"
+        />
+
+        <View style={styles.formRowTwoCols}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.formLabel}>Dosis</Text>
+            <TextInput
+              style={styles.formInput}
+              value={formMedDose}
+              onChangeText={setFormMedDose}
+              placeholder="Ej. 100 mcg / 500 mg"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.formLabel}>Frecuencia</Text>
+            <TextInput
+              style={styles.formInput}
+              value={formMedFreq}
+              onChangeText={setFormMedFreq}
+              placeholder="Ej. Cada 8 horas"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* SECCIÓN 4: CONTACTO DE EMERGENCIA */}
+      <View style={styles.formSection}>
+        <Text style={styles.formSectionTitle}>📞 4. Contacto de Emergencia *</Text>
+        <Text style={styles.formHint}>
+          Obligatorio: persona a llamar en caso de accidente o urgencia
+        </Text>
+
+        <Text style={styles.formLabel}>Nombre completo del contacto *</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formContactName}
+          onChangeText={setFormContactName}
+          placeholder="Ej. María González"
+          placeholderTextColor="#94a3b8"
+          autoCapitalize="words"
+        />
+
+        <Text style={styles.formLabel}>Parentesco o relación *</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formContactRel}
+          onChangeText={setFormContactRel}
+          placeholder="Ej. Madre, Padre, Pareja, Hermano"
+          placeholderTextColor="#94a3b8"
+        />
+
+        <Text style={styles.formLabel}>Número de teléfono *</Text>
+        <TextInput
+          style={styles.formInput}
+          value={formContactPhone}
+          onChangeText={setFormContactPhone}
+          placeholder="Ej. 999-123-4567"
+          placeholderTextColor="#94a3b8"
+          keyboardType="phone-pad"
+        />
+      </View>
+
+      {/* SECCIÓN 5: NOTAS MÉDICAS */}
+      <View style={[styles.formSection, { marginBottom: 4 }]}>
+        <Text style={styles.formSectionTitle}>📝 5. Notas Médicas (opcional)</Text>
+        <Text style={styles.formLabel}>Indicaciones extra para paramédicos</Text>
+        <TextInput
+          style={[styles.formInput, { minHeight: 56, textAlignVertical: 'top' }]}
+          value={formNotes}
+          onChangeText={setFormNotes}
+          placeholder="Ej. Uso lentes de contacto, alergia al látex..."
+          placeholderTextColor="#94a3b8"
+          multiline
+        />
+      </View>
+    </>
+  );
+
+  // ── PANTALLA COMPLETA OBLIGATORIA AL REGISTRAR NUEVA CUENTA ───────────────
+  if (mustCompleteRecord) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.responsiveWrapper}>
+              <View style={styles.headerCard}>
+                <View style={styles.headerTopRow}>
+                  <View style={styles.brandRow}>
+                    <View style={styles.brandBadge}>
+                      <Text style={{ fontSize: 16 }}>🩺</Text>
+                    </View>
+                    <Text style={styles.brandTitle}>Expediente Clínico</Text>
+                  </View>
+                  <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                    <Text style={styles.logoutBtnText}>Salir</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.patientName} numberOfLines={1}>
+                  Hola, {user?.nombre || 'Paciente'}
+                </Text>
+                <Text style={styles.patientEmail}>
+                  Paso obligatorio antes de entrar a LifeSync
+                </Text>
+              </View>
+
+              <View style={styles.onboardingBanner}>
+                <Text style={styles.onboardingBannerText}>
+                  👋 ¡Cuenta creada con éxito! Para poder continuar, completa tu Historial Clínico de Emergencia.
+                </Text>
+              </View>
+
+              <View style={styles.card}>
+                {renderMedicalFormFields()}
+
+                {!!formError && (
+                  <View style={styles.formErrorBox}>
+                    <Text style={styles.formErrorText}>⚠️ {formError}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.btnSave, { marginTop: 14, paddingVertical: 13, alignItems: 'center' }]}
+                  onPress={handleSaveRecord}
+                  disabled={saving}
+                  activeOpacity={0.85}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={[styles.btnSaveText, { fontSize: 14 }]}>
+                      Guardar Expediente y Continuar →
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -816,144 +1035,7 @@ export default function HomeScreen() {
               showsVerticalScrollIndicator={true}
               keyboardShouldPersistTaps="handled"
             >
-              {/* SECCIÓN 1: TIPO DE SANGRE */}
-              <View style={styles.formSection}>
-                <Text style={styles.formSectionTitle}>🩸 1. Tipo de Sangre</Text>
-                <Text style={styles.formHint}>Toca una opción para seleccionarla:</Text>
-                <View style={styles.bloodTypeGrid}>
-                  {BLOOD_TYPES.map((bt) => {
-                    const selected = formBloodType === bt;
-                    return (
-                      <TouchableOpacity
-                        key={bt}
-                        style={[styles.bloodChip, selected && styles.bloodChipSelected]}
-                        onPress={() => setFormBloodType(bt)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.bloodChipText, selected && styles.bloodChipTextSelected]}>
-                          {bt}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* SECCIÓN 2: ALERGIAS Y CONDICIONES */}
-              <View style={styles.formSection}>
-                <Text style={styles.formSectionTitle}>⚠️ 2. Alergias y Condiciones</Text>
-
-                <Text style={styles.formLabel}>Alergias conocidas (opcional)</Text>
-                <Text style={styles.formHint}>Escribe cada alergia separada por una coma</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formAllergies}
-                  onChangeText={setFormAllergies}
-                  placeholder="Ej. Penicilina, Mariscos, Polen"
-                  placeholderTextColor="#94a3b8"
-                />
-
-                <Text style={styles.formLabel}>Enfermedades o condiciones crónicas (opcional)</Text>
-                <Text style={styles.formHint}>Déjalo vacío si no tienes ninguna</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formConditions}
-                  onChangeText={setFormConditions}
-                  placeholder="Ej. Asma, Hipertensión, Diabetes"
-                  placeholderTextColor="#94a3b8"
-                />
-              </View>
-
-              {/* SECCIÓN 3: MEDICAMENTO CONTROLADO */}
-              <View style={styles.formSection}>
-                <Text style={styles.formSectionTitle}>💊 3. Medicamento Controlado (opcional)</Text>
-                <Text style={styles.formHint}>
-                  Si tomas algún medicamento importante, indica sus datos:
-                </Text>
-
-                <Text style={styles.formLabel}>Nombre del medicamento</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formMedName}
-                  onChangeText={setFormMedName}
-                  placeholder="Ej. Salbutamol inhalador, Metformina"
-                  placeholderTextColor="#94a3b8"
-                />
-
-                <View style={styles.formRowTwoCols}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Dosis</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      value={formMedDose}
-                      onChangeText={setFormMedDose}
-                      placeholder="Ej. 100 mcg / 500 mg"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.formLabel}>Frecuencia</Text>
-                    <TextInput
-                      style={styles.formInput}
-                      value={formMedFreq}
-                      onChangeText={setFormMedFreq}
-                      placeholder="Ej. Cada 8 horas"
-                      placeholderTextColor="#94a3b8"
-                    />
-                  </View>
-                </View>
-              </View>
-
-              {/* SECCIÓN 4: CONTACTO DE EMERGENCIA */}
-              <View style={styles.formSection}>
-                <Text style={styles.formSectionTitle}>📞 4. Contacto de Emergencia *</Text>
-                <Text style={styles.formHint}>
-                  Obligatorio: persona a llamar en caso de accidente o urgencia
-                </Text>
-
-                <Text style={styles.formLabel}>Nombre completo del contacto *</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formContactName}
-                  onChangeText={setFormContactName}
-                  placeholder="Ej. María González"
-                  placeholderTextColor="#94a3b8"
-                  autoCapitalize="words"
-                />
-
-                <Text style={styles.formLabel}>Parentesco o relación *</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formContactRel}
-                  onChangeText={setFormContactRel}
-                  placeholder="Ej. Madre, Padre, Pareja, Hermano"
-                  placeholderTextColor="#94a3b8"
-                />
-
-                <Text style={styles.formLabel}>Número de teléfono *</Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formContactPhone}
-                  onChangeText={setFormContactPhone}
-                  placeholder="Ej. 999-123-4567"
-                  placeholderTextColor="#94a3b8"
-                  keyboardType="phone-pad"
-                />
-              </View>
-
-              {/* SECCIÓN 5: NOTAS MÉDICAS */}
-              <View style={[styles.formSection, { marginBottom: 4 }]}>
-                <Text style={styles.formSectionTitle}>📝 5. Notas Médicas (opcional)</Text>
-                <Text style={styles.formLabel}>Indicaciones extra para paramédicos</Text>
-                <TextInput
-                  style={[styles.formInput, { minHeight: 56, textAlignVertical: 'top' }]}
-                  value={formNotes}
-                  onChangeText={setFormNotes}
-                  placeholder="Ej. Uso lentes de contacto, alergia al látex..."
-                  placeholderTextColor="#94a3b8"
-                  multiline
-                />
-              </View>
+              {renderMedicalFormFields()}
             </ScrollView>
 
             {!!formError && (

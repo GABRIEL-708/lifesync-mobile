@@ -104,7 +104,8 @@ export default function RegisterScreen() {
     try {
       const { token, user } = await register(nombre.trim(), email.trim(), password);
       await saveToken(token);
-      setAuth(token, user);
+      // Marca needsOnboarding=true para enviar directo a llenar el expediente clínico
+      setAuth(token, user, true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al registrarse');
     } finally {
